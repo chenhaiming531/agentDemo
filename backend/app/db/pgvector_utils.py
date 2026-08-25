@@ -17,6 +17,8 @@ embeddings = OpenAIEmbeddings(
     base_url=settings.embeddings_base_url,
     api_key=settings.api_key,
     check_embedding_ctx_length=False,
+    # DashScope limits batch size to 10 per embedding request
+    chunk_size=10,
 )
 
 
@@ -36,10 +38,27 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 
 
+class SmartTextLoader(TextLoader):
+    """TextLoader that tries utf-8 then gb18030 to support Chinese txt files."""
+
+    def __init__(self, file_path: str):
+        super().__init__(file_path=file_path, encoding="utf-8")
+
+    def load(self) -> list[Document]:
+        for enc in ("utf-8", "gb18030"):
+            try:
+                with open(self.file_path, encoding=enc) as f:
+                    content = f.read()
+                return [Document(page_content=content, metadata={"source": str(self.file_path)})]
+            except UnicodeDecodeError:
+                continue
+        raise RuntimeError(f"Error loading {self.file_path}")
+
+
 DOCUMENT_LOADER_MAPPING: dict[str, type[BaseLoader]] = {
     ".pdf": PyPDFLoader,
     ".docx": Docx2txtLoader,
-    ".txt": TextLoader,
+    ".txt": SmartTextLoader,
 }
 
 allowd_extensions = list(DOCUMENT_LOADER_MAPPING.keys())

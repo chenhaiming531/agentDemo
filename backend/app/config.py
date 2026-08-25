@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     model_base_url: str | None = None
     embeddings_model_name: str
     embeddings_base_url: str | None = None
+    rerank_model: str | None = None
+    summarize_threshold_turns: int = 10
+    summarize_keep_turns: int = 4
     token_bearer_url: str
     jwt_secret: str
     jwt_algorithm: str

@@ -33,3 +33,9 @@ Decide which type the user's question belongs to:
 * Be concise and direct.
 * Never fabricate information. If you truly cannot find an answer, say so plainly.
 """
+
+SUMMARIZE_PROMPT = """请把下面的历史对话压缩成一段简洁的中文摘要，保留：
+1. 用户的核心需求、偏好与约束条件；
+2. 重要的事实、人名、数字与已作出的决定；
+3. 对话主题与最后一句问题的上下文。
+不要新增任何信息，直接输出摘要正文，不要任何前缀。"""
