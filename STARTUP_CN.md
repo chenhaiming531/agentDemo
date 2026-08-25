@@ -25,7 +25,7 @@
 
 | | 方案 A：Docker | 方案 B：本地安装 PostgreSQL |
 |---|---|---|
-| 需要装什么 | Docker Desktop（约 1-2GB） | PostgreSQL 16 安装包（约 300MB）+ pgvector 预编译包（166KB） |
+| 需要装什么 | Docker Desktop（约 1-2GB） | PostgreSQL 17 安装包（约 300MB）+ pgvector 预编译包（166KB） |
 | pgvector 扩展 | 镜像自带，零配置 | 下载预编译 DLL 复制到安装目录，无需 Visual Studio 编译 |
 | C 盘占用 | 较大（WSL2 虚拟磁盘） | 可装到 E/D 盘 |
 | 适合谁 | 已有 Docker / 想学容器化 | 不想装 Docker / C 盘紧张 |
@@ -115,24 +115,26 @@ docker logs langgraph_postgres
 
 ### 方案 B：本地安装 PostgreSQL + 预编译 pgvector（不用 Docker）
 
-**第 1 步：安装 PostgreSQL 16**
+> 推荐装 **PostgreSQL 17**（生态成熟，pgvector 0.8.6 已验证；Supabase/Neon/RDS 等主流云默认就是这个版本）。如果你倾向用 16，方法完全一样，只是下载链接和 pgvector 包版本号变一下。
 
-1. 下载 PostgreSQL 16 Windows 安装包（EnterpriseDB 版）：
+**第 1 步：安装 PostgreSQL 17**
+
+1. 下载 PostgreSQL 17 Windows 安装包（EnterpriseDB 版）：
    - 打开 https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
-   - 选择 **PostgreSQL 16.x** 的 Windows x86-64 版本
+   - 选择 **PostgreSQL 17.10** 的 Windows x86-64 版本
 2. 运行安装程序，关键设置：
-   - **安装目录**：你 C 盘紧张，建议改成 `E:\PostgreSQL\16`（或 D 盘）
-   - **数据目录**：随之改成 `E:\PostgreSQL\16\data`
+   - **安装目录**：你 C 盘紧张，建议改成 `E:\PostgreSQL\17`（或 D 盘）
+   - **数据目录**：随之改成 `E:\PostgreSQL\17\data`
    - **超级用户密码**：自己设一个，比如 `test`（记住了，后面 `.env` 要填一样的）
    - **端口**：保持默认 `5432`
    - **区域设置**：Default locale 即可
 3. 安装完成时取消勾选 "Stack Builder"（不需要）
-4. 安装程序会自动注册 Windows 服务 `postgresql-x64-16`，开机自启
+4. 安装程序会自动注册 Windows 服务 `postgresql-x64-17`，开机自启
 
 **第 2 步：安装 pgvector 扩展（下载预编译包，不用编译）**
 
-1. 下载 pgvector v0.8.6 预编译包（PostgreSQL 16 版本，仅 166KB）：
-   - https://github.com/andreiramani/pgvector_pgsql_windows/releases/download/0.8.6_16/vector.v0.8.6-pg16.zip
+1. 下载 pgvector v0.8.6 预编译包（PostgreSQL 17 版本，仅 166KB）：
+   - https://github.com/andreiramani/pgvector_pgsql_windows/releases/download/0.8.6_17/vector.v0.8.6-pg17.zip
 2. 解压 ZIP，里面有以下文件：
    ```
    bin/vector.dll
@@ -142,14 +144,14 @@ docker logs langgraph_postgres
    share/extension/vector--0.8.0--0.8.6.sql
    ...（其他版本升级脚本）
    ```
-3. 把解压出来的文件**覆盖复制**到 PostgreSQL 安装目录（如果装在 E 盘就是 `E:\PostgreSQL\16`）：
-   - `lib\vector.dll` → `E:\PostgreSQL\16\lib\vector.dll`
-   - `share\extension\*` → `E:\PostgreSQL\16\share\extension\`
-   - `bin\vector.dll` → `E:\PostgreSQL\16\bin\vector.dll`（如果有的话）
+3. 把解压出来的文件**覆盖复制**到 PostgreSQL 安装目录（如果装在 E 盘就是 `E:\PostgreSQL\17`）：
+   - `lib\vector.dll` → `E:\PostgreSQL\17\lib\vector.dll`
+   - `share\extension\*` → `E:\PostgreSQL\17\share\extension\`
+   - `bin\vector.dll` → `E:\PostgreSQL\17\bin\vector.dll`（如果有的话）
    > 最关键的是 `lib\vector.dll` 和 `share\extension\` 下的文件，这两个必须到位。
 4. 重启 PostgreSQL 服务使扩展生效：
    - 按 `Win + R`，输入 `services.msc`
-   - 找到 `postgresql-x64-16`，右键 → 重新启动
+   - 找到 `postgresql-x64-17`，右键 → 重新启动
 
 **第 3 步：创建数据库 + 启用向量扩展**
 
@@ -157,17 +159,17 @@ docker logs langgraph_postgres
 ```bash
 # 用你安装时设的密码（这里假设是 test）
 # 创建项目数据库
-"E:/PostgreSQL/16/bin/psql.exe" -U postgres -c "CREATE DATABASE langgraph_db;"
+"E:/PostgreSQL/17/bin/psql.exe" -U postgres -c "CREATE DATABASE langgraph_db;"
 
 # 在该数据库里启用 pgvector 扩展（只需一次）
-"E:/PostgreSQL/16/bin/psql.exe" -U postgres -d langgraph_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+"E:/PostgreSQL/17/bin/psql.exe" -U postgres -d langgraph_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
 > 如果路径有空格用双引号包裹。如果设了不同密码，把 `.env` 里的 `POSTGRES_PASSWORD` 改成你的密码。
 
 验证扩展安装成功：
 ```bash
-"E:/PostgreSQL/16/bin/psql.exe" -U postgres -d langgraph_db -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+"E:/PostgreSQL/17/bin/psql.exe" -U postgres -d langgraph_db -c "SELECT extname FROM pg_extension WHERE extname='vector';"
 ```
 看到一行 `vector` 输出即成功。
 

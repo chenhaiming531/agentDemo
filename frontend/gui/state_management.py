@@ -86,7 +86,7 @@ def update_document_list(thread_id: UUID) -> None:
     documents = []
     documents_response = api_utils.list_document(thread_id)
     if documents_response is None:
-        st.sidebar.error("Failed to retrieve document list. Please try again.")
+        st.sidebar.error("获取文档列表失败，请重试。")
     else:
         documents = documents_response
 
@@ -105,7 +105,7 @@ def update_chat_history(thread_id: UUID) -> None:
     if isinstance(chat_history_response, list):
         chat_messages = chat_history_response
     else:
-        st.sidebar.error(chat_history_response.get("details", "Failed to retrieve chat history. Please try again."))
+        st.sidebar.error(chat_history_response.get("details", "获取对话历史失败，请重试。"))
 
     st.session_state["thread"].messages = chat_messages
 

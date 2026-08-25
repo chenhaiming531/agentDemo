@@ -11,8 +11,8 @@ from app.db.main import SessionDep
 from app.db.pgvector_utils import (
     DOCUMENT_LOADER_MAPPING,
     delete_document_from_pgvector,
+    delete_documents_by_metadata,
     index_document_to_pgvector,
-    search_documents_in_pgvector,
 )
 
 from . import service as document_service
@@ -57,7 +57,7 @@ async def upload_document(thread_id: UUID, file: UploadFile, current_user: Curre
 
         return {"document_id": document_id, "message": f"File {file.filename} uploaded and indexed successfully."}
     except Exception as e:
-        logger.error(f"An unexpected error occurred during upload of '{file.filename}': {e}", exc_info=True)
+        logger.error("An unexpected error occurred during upload of '{}': {}", file.filename, e, exc_info=True)
         if document_id is not None:
             if chunk_ids:
                 try:
@@ -65,7 +65,9 @@ async def upload_document(thread_id: UUID, file: UploadFile, current_user: Curre
                     logger.info(f"Attempted cleanup of PGVector for document {document_id} after unexpected error.")
                 except Exception as pgvector_clean_err:
                     logger.error(
-                        f"Failed to cleanup PGVector for document {document_id} during error handling: {pgvector_clean_err}"
+                        "Failed to cleanup PGVector for document {} during error handling: {}",
+                        document_id,
+                        pgvector_clean_err,
                     )
             await document_service.delete_document(document_id, session)
             logger.info(f"Rolled back database record for document {document_id} due to unexpected error.")
@@ -82,13 +84,11 @@ async def upload_document(thread_id: UUID, file: UploadFile, current_user: Curre
 async def delete_document(document_id: UUID, current_user: CurrentUserDep, session: SessionDep):
     """Delete a document from the database and PGVector."""
     chunk_message = ""
-    document_chunks = await search_documents_in_pgvector(filter={"document_id": str(document_id)})
-    if not document_chunks:
+    deleted_count = await delete_documents_by_metadata({"document_id": str(document_id)})
+    if deleted_count == 0:
         logger.warning(f"Document chunks related to document {document_id} not found in PGVector.")
     else:
-        doc_ids_to_delete = [doc.metadata["id"] for doc in document_chunks]
-        await delete_document_from_pgvector(doc_ids_to_delete)
-        logger.info(f"Successfully delete all document chunks related to document_id: {document_id} from PGVector.")
+        logger.info(f"Successfully deleted {deleted_count} document chunks related to document_id: {document_id} from PGVector.")
         chunk_message = "all its chunks from PGVector."
     await document_service.delete_document(document_id, session)
     logger.info(f"Successfully deleted document {document_id} from database.")

@@ -1,21 +1,22 @@
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from langchain.embeddings import init_embeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_core.documents import Document
 from langchain_postgres import PGVector
 from loguru import logger
+from sqlalchemy import text
 
 from app.config import settings
 
-embeddings = init_embeddings(
+embeddings = OpenAIEmbeddings(
     model=settings.embeddings_model_name,
     base_url=settings.embeddings_base_url,
-    provider=settings.model_provider,
     api_key=settings.api_key,
+    check_embedding_ctx_length=False,
 )
 
 
@@ -82,7 +83,7 @@ async def index_document_to_pgvector(file_path: Path, document_id: UUID, thread_
         )
         return doc_ids
     except Exception as e:
-        logger.error(f"Error adding documents to PGVector: {e}")
+        logger.error("Error adding documents to PGVector: {}", e)
         raise
 
 
@@ -104,3 +105,33 @@ async def delete_document_from_pgvector(document_ids: list[str]) -> None:
     logger.info(f"Attempting to delete {len(document_ids)} document chunks from PGVector.")
     await vector_store.adelete(ids=document_ids)
     logger.info(f"Successfully deleted {len(document_ids)} document chunks from PGVector.")
+
+
+async def delete_documents_by_metadata(metadata: dict[str, str]) -> int:
+    """Delete document chunks from PGVector by metadata key-value pairs, without embedding.
+
+    Useful when the caller only has a filter (e.g. thread_id / document_id) but no query text.
+    Returns the number of deleted chunks.
+    """
+    if not metadata:
+        logger.warning("delete_documents_by_metadata called with empty metadata, skip.")
+        return 0
+
+    allowed_keys = {"thread_id", "document_id", "user_id"}
+    if not set(metadata).issubset(allowed_keys):
+        raise ValueError(f"Unsupported metadata keys: {set(metadata) - allowed_keys}")
+
+    await vector_store.__apost_init__()
+    conditions = " AND ".join(f"cmetadata->>'{key}' = :{key}" for key in metadata)
+    statement = text(
+        "DELETE FROM langchain_pg_embedding "
+        "WHERE collection_id = (SELECT uuid FROM langchain_pg_collection WHERE name = :collection_name) "
+        f"AND {conditions}"
+    )
+    async with vector_store._async_engine.begin() as conn:
+        result = await conn.execute(
+            statement,
+            {**metadata, "collection_name": settings.pgvector_collection_name},
+        )
+    logger.info(f"Deleted {result.rowcount} document chunks from PGVector with metadata filter: {metadata}.")
+    return result.rowcount

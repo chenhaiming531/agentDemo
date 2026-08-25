@@ -3,7 +3,6 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from uuid import UUID
 
 from app.db.checkpointer import get_checkpointer
-from fastapi import HTTPException
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
@@ -40,7 +39,8 @@ async def get_chat_history(thread_id: UUID, user_id: UUID) -> list[Message]:
     checkpoint = await checkpointer.aget(config)
 
     if checkpoint is None:
-        raise HTTPException(status_code=404, detail="Chat history not found")
+        # A brand-new thread has no checkpoint yet: return empty history instead of 404
+        return []
 
     all_messages = checkpoint.get("channel_values", {}).get("messages", [])
     messages = [

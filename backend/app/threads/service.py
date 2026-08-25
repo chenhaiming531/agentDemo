@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Thread
-from app.db.pgvector_utils import delete_document_from_pgvector, search_documents_in_pgvector
+from app.db.pgvector_utils import delete_documents_by_metadata
 
 from .schemas import ThreadUpdate
 
@@ -82,16 +82,14 @@ async def delete_thread(
         await checkpointer.adelete_thread(thread_id=str(thread_id))
         logger.info(f"Successfully deleted thread {thread_id} from checkpointer (chat messages)")
     except Exception as e:
-        logger.error(f"Failed to delete thread {thread_id} from checkpointer (chat messages): {str(e)}")
+        logger.error("Failed to delete thread {} from checkpointer (chat messages): {}", thread_id, str(e))
 
     try:
         logger.info(f"Attempting to delete documents related to thread_id {thread_id}")
-        document_chunks = await search_documents_in_pgvector(filter={"thread_id": str(thread_id)})
-        if not document_chunks:
+        deleted_count = await delete_documents_by_metadata({"thread_id": str(thread_id)})
+        if deleted_count == 0:
             logger.warning(f"Document chunks related to thread {thread_id} not found in PGVector.")
         else:
-            doc_ids_to_delete = [doc.metadata["id"] for doc in document_chunks]
-            await delete_document_from_pgvector(doc_ids_to_delete)
-            logger.info(f"Successfully deleted all document chunks related to thread_id: {thread_id} from PGVector.")
+            logger.info(f"Successfully deleted {deleted_count} document chunks related to thread_id: {thread_id} from PGVector.")
     except Exception as e:
-        logger.error(f"Failed to delete documents related to thread {thread_id} from PGVector: {str(e)}")
+        logger.error("Failed to delete documents related to thread {} from PGVector: {}", thread_id, str(e))

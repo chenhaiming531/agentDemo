@@ -14,7 +14,7 @@ def authenticated_user_chat_interface_component():
             st.markdown(message["content"])
 
     if prompt := st.chat_input(
-        "Ask a question...", accept_file="multiple", key="prompt", file_type=["pdf", "docx", "txt"]
+        "输入问题...", accept_file="multiple", key="prompt", file_type=["pdf", "docx", "txt"]
     ):
         if st.session_state["thread"].id is None:
             is_first_message = True
@@ -33,17 +33,17 @@ def authenticated_user_chat_interface_component():
             update_user_threads()
 
         with st.chat_message("human"):
-            st.markdown(text or "*[file upload]*")
+            st.markdown(text or "*[文件上传]*")
             for up in files:
                 st.write(f"📂 {up.name}")
 
         for file in files:
-            with st.spinner(f"Uploading {file.name}…"):
+            with st.spinner(f"正在上传 {file.name}…"):
                 resp = api_utils.upload_document(st.session_state["thread"].id, file)
                 if resp:
-                    st.success(f"Uploaded {file.name} ➝ ID {resp['document_id']}")
+                    st.success(f"上传成功 {file.name} ➝ ID {resp['document_id']}")
                 else:
-                    st.error(f"Failed to upload {file.name}")
+                    st.error(f"上传失败 {file.name}")
 
         if files:
             update_document_list(st.session_state["thread"].id)
@@ -65,12 +65,12 @@ def authenticated_user_chat_interface_component():
                             if event_type == "tool_call":
                                 with steps_container:
                                     st.markdown(
-                                        f"**Tool Call:** Running `{event['name']}` with arguments: `{event['args']}`"
+                                        f"**工具调用：** 执行 `{event['name']}`，参数：`{event['args']}`"
                                     )
 
                             elif event_type == "tool_result":
                                 with steps_container:
-                                    with st.expander(f"**Tool Result:** `{event['name']}`", expanded=False):
+                                    with st.expander(f"**工具结果：** `{event['name']}`", expanded=False):
                                         st.code(event["content"], language="json")
 
                             elif event_type == "llm_chunk":
@@ -89,14 +89,14 @@ def authenticated_user_chat_interface_component():
                         st.session_state["thread"].messages.append({"role": "ai", "content": full_response})
 
                 except Exception as e:
-                    st.error("An error occurred while processing your request.")
+                    st.error("处理请求时出错。")
                     logger.error(f"Error in fetch_stream: {e}")
                     if is_first_message:
                         api_utils.delete_thread(st.session_state["thread"].id)
                         logger.info(f"Thread {st.session_state['thread'].id} deleted")
                         new_chat()
 
-            with st.spinner("Generating response..."):
+            with st.spinner("正在生成回答..."):
                 asyncio.run(fetch_stream())
 
 
@@ -105,7 +105,7 @@ def unauthenticated_user_chat_interface_component():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Ask a question...", key="prompt"):
+    if prompt := st.chat_input("输入问题...", key="prompt"):
         st.session_state["thread"].messages.append({"role": "human", "content": prompt})
 
         with st.chat_message("human"):
@@ -130,7 +130,7 @@ def unauthenticated_user_chat_interface_component():
                     placeholder.markdown(full_response)
                     st.session_state["thread"].messages.append({"role": "ai", "content": full_response})
                 except Exception:
-                    st.error("An error occurred while processing your request. Please try again.")
+                    st.error("处理请求时出错，请重试。")
 
-            with st.spinner("Generating response..."):
+            with st.spinner("正在生成回答..."):
                 asyncio.run(fetch_stream())

@@ -161,8 +161,10 @@ def get_chat_history(thread_id: UUID) -> list | dict:
         return response.json()
     except requests.exceptions.HTTPError as e:
         logger.error(f"API response failed with status {e.response.status_code}. Response: {e.response.text}")
-        if e.response.status_code in [401, 404]:
+        if e.response.status_code in [401]:
             return e.response.json()
+        if e.response.status_code == 404:
+            return []  # A brand-new thread has no history yet
         return []
     except requests.exceptions.RequestException as e:
         logger.error(f"API call failed with RequestError: {str(e)}")
