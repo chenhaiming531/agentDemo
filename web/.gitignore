@@ -1,0 +1,12 @@
+# 依赖与构建产物不入库
+node_modules/
+dist/
+
+# 本地环境
+*.local
+.env.local
+.env.*.local
+
+# IDE / 系统
+.DS_Store
+Thumbs.db
