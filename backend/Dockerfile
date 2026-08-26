@@ -2,10 +2,16 @@ FROM python:3.12.11-slim-bookworm
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+# 国内加速：apt 源换阿里云（Debian 官方源在国内很慢）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# 国内加速：pip / uv 源换清华
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 RUN pip install uv
 
