@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, AsyncGenerator, AsyncIterable
 
@@ -5,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from loguru import logger
 from pydantic import BaseModel
+from starlette.types import Receive, Scope, Send
 
 
 class PromptInput(BaseModel):
@@ -21,10 +23,50 @@ class ChatStreamResponse(StreamingResponse):
     """
     It processes the LangGraph stream in different stream modes ("updates", "messages") and formats the data
     into JSON objects before sending them to the client.
+
+    It also stops the upstream generator (and therefore the running agent / LLM call) as soon as the
+    client disconnects, so clicking "stop" on the frontend actually stops the backend work.
     """
 
     def __init__(self, astream: AsyncIterable[dict[str, Any | Any]], **kwargs):
         super().__init__(content=self.process_stream(astream), **kwargs)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": self.status_code,
+                "headers": self.raw_headers,
+            }
+        )
+
+        async def listen_for_disconnect() -> None:
+            try:
+                while True:
+                    message = await receive()
+                    if message["type"] == "http.disconnect":
+                        return
+            except Exception:
+                return
+
+        disconnect_task = asyncio.create_task(listen_for_disconnect())
+        try:
+            async for chunk in self.body_iterator:
+                if disconnect_task.done():
+                    # 客户端已断开：停止继续生成（关闭上游生成器即中断 agent）
+                    logger.info("Client disconnected, stopping stream generation")
+                    break
+                if not isinstance(chunk, (bytes, memoryview)):
+                    chunk = chunk.encode(self.charset)
+                await send({"type": "http.response.body", "body": chunk, "more_body": True})
+        finally:
+            disconnect_task.cancel()
+
+        try:
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except Exception:
+            # 客户端已断开时，收尾发送失败属正常，忽略
+            pass
 
     async def process_stream(self, astream: AsyncIterable[dict[str, Any | Any]]) -> AsyncGenerator[str, Any]:
         async for stream_mode, chunk in astream:

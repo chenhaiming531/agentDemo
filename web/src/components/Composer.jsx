@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 
-export default function Composer({ busy, onSend }) {
+export default function Composer({ busy, onSend, onStop }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState([])
   const fileRef = useRef(null)
@@ -16,7 +16,7 @@ export default function Composer({ busy, onSend }) {
     const p = text.trim()
     if (busy) return
     if (!p && files.length === 0) return
-    onSend(p, files)
+    Promise.resolve(onSend(p, files)).catch(() => {})
     setText('')
     setFiles([])
     if (taRef.current) taRef.current.style.height = 'auto'
@@ -63,12 +63,19 @@ export default function Composer({ busy, onSend }) {
             </svg>
             <input ref={fileRef} type="file" multiple accept=".pdf,.docx,.txt" style={{ display: 'none' }} onChange={pickFiles} />
           </button>
-          <span className="composer-hint">PDF / DOCX / TXT</span>
-          <button className="send-btn" aria-label="发送" disabled={busy || (!text.trim() && files.length === 0)} onClick={submit}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-            </svg>
-          </button>
+          <span className="composer-hint">{busy ? '生成中，可点击右侧「停止」中止' : 'PDF / DOCX / TXT'}</span>
+          {busy ? (
+            <button className="stop-btn" onClick={onStop}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3" /></svg>
+              停止
+            </button>
+          ) : (
+            <button className="send-btn" aria-label="发送" disabled={!text.trim() && files.length === 0} onClick={submit}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>

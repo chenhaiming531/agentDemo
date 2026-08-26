@@ -106,12 +106,24 @@ function Welcome({ onSuggest }) {
   )
 }
 
-export default function ChatArea({ messages, onSuggest }) {
+export default function ChatArea({
+  messages,
+  onSuggest,
+  canAct,
+  onEdit,
+  onSupplement,
+  onResend,
+  editMode,
+  editText,
+  onEditTextChange,
+  onCommit,
+  onCancel,
+}) {
   const scrollRef = useRef(null)
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages])
+  }, [messages, editMode])
 
   return (
     <div className="chat-scroll" ref={scrollRef}>
@@ -120,6 +132,34 @@ export default function ChatArea({ messages, onSuggest }) {
           <Welcome onSuggest={onSuggest} />
         ) : (
           messages.map((m) => (m.role === 'user' ? <UserMessage key={m.key} m={m} /> : <AiMessage key={m.key} m={m} />))
+        )}
+
+        {canAct && !editMode && (
+          <div className="msg-actions">
+            <button className="act-btn" onClick={onEdit}>✏️ 编辑后重发</button>
+            <button className="act-btn" onClick={onSupplement}>➕ 补充后重发</button>
+            <button className="act-btn" onClick={onResend}>🔁 重发</button>
+          </div>
+        )}
+
+        {editMode && (
+          <div className="edit-panel">
+            <div className="edit-title">
+              {editMode === 'edit' ? '✏️ 编辑问题后重发（将替换上一个问题）' : '➕ 在上一问基础上补充说明'}
+            </div>
+            <textarea
+              className="edit-input"
+              value={editText}
+              onChange={(e) => onEditTextChange(e.target.value)}
+              rows={3}
+              placeholder={editMode === 'edit' ? '修改你的问题…' : '补充内容…'}
+              autoFocus
+            />
+            <div className="edit-btns">
+              <button className="act-btn primary" onClick={() => onCommit(editText)} disabled={!editText.trim()}>🚀 重发</button>
+              <button className="act-btn" onClick={onCancel}>取消</button>
+            </div>
+          </div>
         )}
       </div>
     </div>

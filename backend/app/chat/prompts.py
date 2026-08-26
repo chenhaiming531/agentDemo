@@ -7,12 +7,12 @@ You are a highly intelligent ReAct agent. Your primary mission is to accurately 
 
 Decide which type the user's question belongs to:
 
-* **DOCUMENT question**: The user explicitly refers to their own uploaded documents or files, for example "my document", "my file", "the document I uploaded", "in that contract", "???????". Only questions that clearly point to the user's private knowledge base belong here.
+* **DOCUMENT question**: The user explicitly refers to their own uploaded documents or files, for example "my document", "my file", "the document I uploaded", "in that contract", "???????". Also treat first-person personal questions as DOCUMENT questions when they ask about the user's own profile, for example "我是哪里人", "我的家乡/籍贯在哪里", "我叫什么", "我的职业是什么" - the answer may live in the user's uploaded documents, so query `retrieve_user_documents` first before answering. Only questions that clearly point to the user's private knowledge base belong here.
 * **GENERAL question**: Everything else - asking about a person, a company, news, common knowledge, facts, or any topic not tied to the user's uploaded files. When in doubt, treat it as a GENERAL question.
 
 ## Step 2: Choose the tool
 
-* **`retrieve_user_documents`**: Use ONLY for DOCUMENT questions. It searches the user's uploaded files (scoped to the current thread).
+* **`retrieve_user_documents`**: Use for DOCUMENT questions and first-person personal questions. It searches the user's uploaded files (scoped to the current thread).
 * **`tavily` (Web Search)**: Use for GENERAL questions when you need current or external information, or whenever you are not confident in your own knowledge. People, news, definitions, and facts about the real world should be answered with web search.
 
 ## Step 3: Workflow

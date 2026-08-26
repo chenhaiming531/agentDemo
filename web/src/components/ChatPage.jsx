@@ -16,7 +16,11 @@ export default function ChatPage({ user, onLogout }) {
   const [busy, setBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [toast, setToast] = useState(null)
+  // 编辑 / 补充面板状态
+  const [editMode, setEditMode] = useState(null) // null | 'edit' | 'supplement'
+  const [editText, setEditText] = useState('')
   const aiKeyRef = useRef(null)
+  const stopRef = useRef(null)
   const toastTimer = useRef(null)
 
   const showToast = useCallback((text, kind = 'ok') => {
@@ -39,6 +43,8 @@ export default function ChatPage({ user, onLogout }) {
   const openThread = useCallback(async (tid) => {
     setThreadId(tid)
     setMessages([])
+    setEditMode(null)
+    setEditText('')
     refreshDocs(tid)
     try {
       const h = await api.history(tid)
@@ -52,6 +58,8 @@ export default function ChatPage({ user, onLogout }) {
       setThreadId(t.id)
       setMessages([])
       setDocuments([])
+      setEditMode(null)
+      setEditText('')
       refreshThreads()
     } catch (e) { showToast(e.message, 'err') }
   }, [refreshThreads, showToast])
@@ -97,9 +105,13 @@ export default function ChatPage({ user, onLogout }) {
     }
   }, [])
 
-  const send = useCallback(async (prompt, files) => {
+  const send = useCallback(async (prompt, files, opts = {}) => {
+    const appendUser = opts.appendUser !== false
     if (busy) return
     setBusy(true)
+    const ctrl = new AbortController()
+    stopRef.current = ctrl
+    let aiKey = null
     try {
       let tid = threadId
       if (!tid) {
@@ -112,11 +124,12 @@ export default function ChatPage({ user, onLogout }) {
 
       const userMsg = { key: nextKey(), role: 'user', content: prompt || '（已上传文件）' }
       const aiMsg = { key: nextKey(), role: 'ai', content: '', streaming: true, trace: [], sources: [] }
-      aiKeyRef.current = aiMsg.key
-      setMessages((m) => [...m, userMsg, aiMsg])
+      aiKey = aiMsg.key
+      aiKeyRef.current = aiKey
+      setMessages((m) => (appendUser ? [...m, userMsg, aiMsg] : [...m, aiMsg]))
 
       const realPrompt = prompt || '请基于我上传的文档，简要回答。'
-      const res = await api.streamChat(tid, realPrompt, model)
+      const res = await api.streamChat(tid, realPrompt, model, ctrl.signal)
       if (!res.ok) {
         let detail = res.status + ' ' + res.statusText
         try { const e = await res.json(); if (e && e.detail) detail = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail) } catch (_) { /* ignore */ }
@@ -138,22 +151,101 @@ export default function ChatPage({ user, onLogout }) {
           applyEvent(evt)
         }
       }
-      setMessages((m) => m.map((x) => x.key === aiKeyRef.current ? { ...x, streaming: false } : x))
+      setMessages((m) => m.map((x) => x.key === aiKey ? { ...x, streaming: false } : x))
 
-      if (prompt) {
+      if (appendUser && prompt) {
         try {
           await api.renameThread(tid, prompt.slice(0, 24))
           refreshThreads()
         } catch (_) { /* ignore */ }
       }
     } catch (err) {
-      showToast(err.message || '发送失败，请重试', 'err')
-      const key = aiKeyRef.current
-      setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false, error: true } : x))
+      const isAbort = err && (err.name === 'AbortError' || String(err.message || '').toLowerCase().includes('abort'))
+      if (isAbort) {
+        // 用户主动中止：保留已生成的内容，不报错
+        setMessages((m) => m.map((x) => x.key === aiKey ? { ...x, streaming: false } : x))
+      } else {
+        showToast(err.message || '发送失败，请重试', 'err')
+        setMessages((m) => m.map((x) => x.key === aiKey ? { ...x, streaming: false, error: true } : x))
+      }
     } finally {
       setBusy(false)
+      stopRef.current = null
     }
   }, [busy, threadId, model, refreshThreads, uploadFiles, applyEvent, showToast])
+
+  const stopGenerating = useCallback(() => {
+    if (stopRef.current) stopRef.current.abort()
+    // 立即结束 UI 流式状态（不等 reader 抛错），已生成内容保留
+    const key = aiKeyRef.current
+    if (key) setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false } : x))
+    setBusy(false)
+  }, [])
+
+  const lastUserContent = useCallback(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].content
+    }
+    return ''
+  }, [messages])
+
+  const startEdit = useCallback(() => {
+    setEditMode('edit')
+    setEditText(lastUserContent())
+  }, [lastUserContent])
+
+  const startSupplement = useCallback(() => {
+    setEditMode('supplement')
+    setEditText('')
+  }, [])
+
+  const cancelAction = useCallback(() => {
+    setEditMode(null)
+    setEditText('')
+  }, [])
+
+  const commitAction = useCallback((text) => {
+    const value = (text || '').trim()
+    if (!value) return
+    if (editMode === 'edit') {
+      // 编辑：替换最近一条 user 消息，删除旧回答，重发
+      setMessages((m) => {
+        const next = [...m]
+        let ui = -1
+        for (let i = next.length - 1; i >= 0; i--) if (next[i].role === 'user') { ui = i; break }
+        if (ui >= 0) next[ui] = { ...next[ui], content: value }
+        for (let i = next.length - 1; i >= 0; i--) if (next[i].role === 'ai') { next.splice(i, 1); break }
+        return next
+      })
+      setEditMode(null)
+      setEditText('')
+      send(value, [], { appendUser: false })
+    } else if (editMode === 'supplement') {
+      // 补充：追加一条「补充说明」消息，删除旧回答，重发
+      const prompt = '补充说明：' + value
+      setMessages((m) => {
+        const next = [...m]
+        for (let i = next.length - 1; i >= 0; i--) if (next[i].role === 'ai') { next.splice(i, 1); break }
+        return [...next, { key: nextKey(), role: 'user', content: prompt }]
+      })
+      setEditMode(null)
+      setEditText('')
+      send(prompt, [], { appendUser: false })
+    }
+  }, [editMode, send])
+
+  const resend = useCallback(() => {
+    const content = lastUserContent()
+    if (!content) return
+    setMessages((m) => {
+      const next = [...m]
+      for (let i = next.length - 1; i >= 0; i--) if (next[i].role === 'ai') { next.splice(i, 1); break }
+      return next
+    })
+    setEditMode(null)
+    setEditText('')
+    send(content, [], { appendUser: false })
+  }, [lastUserContent, send])
 
   const uploadToCurrent = useCallback(async (files) => {
     if (!threadId) return
@@ -161,6 +253,9 @@ export default function ChatPage({ user, onLogout }) {
   }, [threadId, uploadFiles])
 
   const onSuggest = useCallback((text) => send(text, []), [send])
+
+  const lastMsg = messages[messages.length - 1]
+  const canAct = !!lastMsg && lastMsg.role === 'ai' && !lastMsg.streaming
 
   return (
     <div className={'shell' + (sidebarOpen ? '' : ' sidebar-closed')}>
@@ -197,8 +292,20 @@ export default function ChatPage({ user, onLogout }) {
           </div>
         </div>
 
-        <ChatArea messages={messages} onSuggest={onSuggest} />
-        <Composer busy={busy} onSend={send} />
+        <ChatArea
+          messages={messages}
+          onSuggest={onSuggest}
+          canAct={canAct}
+          onEdit={startEdit}
+          onSupplement={startSupplement}
+          onResend={resend}
+          editMode={editMode}
+          editText={editText}
+          onEditTextChange={setEditText}
+          onCommit={commitAction}
+          onCancel={cancelAction}
+        />
+        <Composer busy={busy} onSend={send} onStop={stopGenerating} />
       </div>
 
       {toast && (

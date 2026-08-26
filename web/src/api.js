@@ -52,13 +52,14 @@ export const api = {
   },
   listDocs: (threadId) => j('GET', '/documents/' + threadId),
   deleteDoc: (id) => j('DELETE', '/documents/' + id),
-  streamChat: (threadId, prompt, model) =>
+  streamChat: (threadId, prompt, model, signal) =>
     fetch(BASE + '/chat/' + threadId, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: 'Bearer ' + authToken } : {})
       },
-      body: JSON.stringify({ prompt, model_name: model })
+      body: JSON.stringify({ prompt, model_name: model }),
+      signal
     })
 }

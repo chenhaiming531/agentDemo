@@ -59,9 +59,23 @@ def initialize_state() -> None:
     if "model_name" not in st.session_state:
         st.session_state["model_name"] = MODEL_NAMES[0]
 
+    # 聊天动作状态：中止生成 / 编辑 / 补充 / 重发
+    if "stop_generation" not in st.session_state:
+        st.session_state["stop_generation"] = False
+    if "action" not in st.session_state:
+        st.session_state["action"] = None
+    if "action_text" not in st.session_state:
+        st.session_state["action_text"] = ""
+    if "resend_prompt" not in st.session_state:
+        st.session_state["resend_prompt"] = None
+    if "gen_counter" not in st.session_state:
+        st.session_state["gen_counter"] = 0
+
 
 def new_chat():
     st.session_state["thread"] = Thread()
+    st.session_state["action"] = None
+    st.session_state["resend_prompt"] = None
 
 
 def update_thread(thread_id: UUID, title: str):
@@ -78,6 +92,8 @@ def change_thread(thread_id: UUID) -> None:
     user_id = get_thread_response.get("user_id")
 
     st.session_state["thread"] = Thread(id=thread_id, title=title, user_id=user_id)  # type: ignore
+    st.session_state["action"] = None
+    st.session_state["resend_prompt"] = None
     update_document_list(thread_id)
     update_chat_history(thread_id)
 
@@ -126,3 +142,6 @@ def logout_user() -> None:
     st.session_state["user"] = User()
     st.session_state["thread"] = Thread()
     st.session_state["model_name"] = MODEL_NAMES[0]
+    st.session_state["action"] = None
+    st.session_state["resend_prompt"] = None
+    st.session_state["stop_generation"] = False
