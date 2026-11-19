@@ -10,8 +10,10 @@ from starlette.types import Receive, Scope, Send
 
 
 class PromptInput(BaseModel):
-    prompt: str
+    prompt: str = ""
     model_name: str
+    # Non-null when the client is answering an ask_human interrupt.
+    resume: str | None = None
 
 
 class Message(BaseModel):
@@ -85,6 +87,21 @@ class ChatStreamResponse(StreamingResponse):
         return ""
 
     async def _handle_updates_stream(self, chunk: dict[str, Any]) -> AsyncGenerator[str, Any]:
+        # Human-in-the-loop: graph pauses inside ask_human and LangGraph emits an
+        # __interrupt__ chunk. Forward it so the frontend can render a choice card.
+        if "__interrupt__" in chunk:
+            for interrupt_obj in chunk["__interrupt__"]:
+                payload = getattr(interrupt_obj, "value", interrupt_obj)
+                if not isinstance(payload, dict):
+                    payload = {"question": str(payload), "options": []}
+                response = {
+                    "type": "ask_human",
+                    "question": payload.get("question", ""),
+                    "options": payload.get("options", []),
+                }
+                yield json.dumps(response, ensure_ascii=False) + "\n"
+            return
+
         for node_output in chunk.values():
             if "messages" not in node_output:
                 continue

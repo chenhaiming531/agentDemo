@@ -7,6 +7,7 @@ from app.config import settings
 from app.db.checkpointer import get_checkpointer
 from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
 from loguru import logger
 
 from .langgraph_agent import build_retrival_graph, create_model
@@ -86,10 +87,25 @@ async def maybe_summarize_history(checkpointer, graph, config, model) -> None:
 async def chat_stream(thread_id: UUID, prompt_input: PromptInput, user_id: UUID) -> AsyncIterator:
     """
     Streams the agent's execution steps and final response.
+
+    Two modes share the same thread_id / checkpointer:
+    - normal: prompt is a new user question -> feed a HumanMessage
+    - resume: prompt_input.resume holds the human's answer to an ask_human
+      interrupt -> feed Command(resume=...) so the graph continues from the
+      paused node. Skipping the normal path also avoids appending a duplicate
+      HumanMessage and avoids rewriting history while a write is pending.
     """
     config = RunnableConfig(configurable={"thread_id": str(thread_id), "user_id": str(user_id)})
     checkpointer = await get_checkpointer()
     graph = build_retrival_graph(checkpointer, prompt_input.model_name)
+
+    if prompt_input.resume is not None:
+        logger.info(f"Resuming interrupted graph for thread {thread_id}")
+        return graph.astream(
+            input=Command(resume=prompt_input.resume),
+            config=config,
+            stream_mode=["updates", "messages"],
+        )
 
     # Compress long history before answering so token usage stays bounded.
     await maybe_summarize_history(checkpointer, graph, config, create_model(prompt_input.model_name))

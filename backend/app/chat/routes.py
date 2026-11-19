@@ -1,9 +1,10 @@
 from uuid import UUID
 
 from app.auth.dependencies import CurrentUserDep
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from .rate_limit import bare_chat_rate_limit
 from . import service as chat_service
 from .schemas import ChatStreamResponse, Message, PromptInput
 
@@ -11,7 +12,11 @@ chat_router = APIRouter()
 
 
 @chat_router.post("/")
-async def simple_chat_stream(prompt_input: PromptInput):
+async def simple_chat_stream(
+    prompt_input: PromptInput,
+    _rate_limited: None = Depends(bare_chat_rate_limit),
+):
+    # No auth / no tools / no memory - rate-limited by IP to stop LLM cost abuse.
     return StreamingResponse(
         chat_service.simple_chat_stream(prompt_input),
     )

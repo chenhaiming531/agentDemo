@@ -61,5 +61,15 @@ export const api = {
       },
       body: JSON.stringify({ prompt, model_name: model }),
       signal
+    }),
+  resumeChat: (threadId, answer, model, signal) =>
+    fetch(BASE + '/chat/' + threadId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: 'Bearer ' + authToken } : {})
+      },
+      body: JSON.stringify({ prompt: '', model_name: model, resume: answer }),
+      signal
     })
 }

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     rerank_model: str | None = None
     summarize_threshold_turns: int = 10
     summarize_keep_turns: int = 4
+    # Rate limit for the unauthenticated POST /chat/ (sliding window, per IP).
+    bare_chat_rate_limit: int = 20
+    bare_chat_rate_window: int = 60
     token_bearer_url: str
     jwt_secret: str
     jwt_algorithm: str

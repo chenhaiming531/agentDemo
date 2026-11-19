@@ -14,6 +14,7 @@ export default function ChatPage({ user, onLogout }) {
   const [documents, setDocuments] = useState([])
   const [model, setModel] = useState('qwen-plus')
   const [busy, setBusy] = useState(false)
+  const [pendingQuestion, setPendingQuestion] = useState(null) // { question, options }
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [toast, setToast] = useState(null)
   // 编辑 / 补充面板状态
@@ -92,18 +93,81 @@ export default function ChatPage({ user, onLogout }) {
     if (evt.type === 'llm_chunk') {
       setMessages((m) => m.map((x) => x.key === key ? { ...x, content: x.content + (evt.content || '') } : x))
     } else if (evt.type === 'tool_call') {
-      const label = evt.name === 'retrieve_user_documents' ? '检索文档' : evt.name === 'tavily' ? '联网搜索' : evt.name
+      const label = evt.name === 'retrieve_user_documents' ? '检索文档' : evt.name === 'tavily' ? '联网搜索' : evt.name === 'ask_human' ? '请求你确认' : evt.name
       setMessages((m) => m.map((x) => x.key === key ? { ...x, trace: [...x.trace, { label, done: false }] } : x))
     } else if (evt.type === 'tool_result') {
-      const label = evt.name === 'retrieve_user_documents' ? '检索文档' : evt.name === 'tavily' ? '联网搜索' : evt.name
+      const label = evt.name === 'retrieve_user_documents' ? '检索文档' : evt.name === 'tavily' ? '联网搜索' : evt.name === 'ask_human' ? '已收到你的回答' : evt.name
       const snippets = String(evt.content || '').split('\n\n').filter((s) => s.trim()).slice(0, 5).map((s) => s.slice(0, 500))
       setMessages((m) => m.map((x) => x.key === key ? {
         ...x,
         trace: x.trace.map((t, i) => i === x.trace.length - 1 ? { ...t, done: true } : t),
         sources: [...x.sources, { label, snippets }]
       } : x))
+    } else if (evt.type === 'ask_human') {
+      // Agent paused: show a multiple-choice card and let the user decide.
+      setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false, awaitingHuman: true } : x))
+      setPendingQuestion({ question: evt.question || '', options: evt.options || [] })
     }
   }, [])
+
+  // Consume an NDJSON stream, dispatching each line to applyEvent.
+  const drainStream = useCallback(async (res) => {
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop()
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let evt
+        try { evt = JSON.parse(line) } catch (_) { continue }
+        applyEvent(evt)
+      }
+    }
+  }, [applyEvent])
+
+  // Answer an ask_human interrupt: append the choice as a user message, then
+  // resume the paused graph with the same thread_id and keep streaming into
+  // the SAME ai bubble so the answer continues below the question.
+  const answerQuestion = useCallback(async (answer) => {
+    if (!threadId || busy) return
+    const value = (answer || '').trim()
+    if (!value) return
+    setBusy(true)
+    const ctrl = new AbortController()
+    stopRef.current = ctrl
+    const key = aiKeyRef.current
+    setPendingQuestion(null)
+    setMessages((m) => [
+      ...m.map((x) => x.key === key ? { ...x, awaitingHuman: false, streaming: true } : x),
+      { key: nextKey(), role: 'user', content: value }
+    ])
+    try {
+      const res = await api.resumeChat(threadId, value, model, ctrl.signal)
+      if (!res.ok) {
+        let detail = res.status + ' ' + res.statusText
+        try { const e = await res.json(); if (e && e.detail) detail = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail) } catch (_) { /* ignore */ }
+        throw new Error(detail)
+      }
+      await drainStream(res)
+      setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false } : x))
+    } catch (err) {
+      const isAbort = err && (err.name === 'AbortError' || String(err.message || '').toLowerCase().includes('abort'))
+      if (isAbort) {
+        setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false } : x))
+      } else {
+        showToast(err.message || '回答失败，请重试', 'err')
+        setMessages((m) => m.map((x) => x.key === key ? { ...x, streaming: false, error: true } : x))
+      }
+    } finally {
+      setBusy(false)
+      stopRef.current = null
+    }
+  }, [threadId, busy, model, drainStream, showToast])
 
   const send = useCallback(async (prompt, files, opts = {}) => {
     const appendUser = opts.appendUser !== false
@@ -135,22 +199,7 @@ export default function ChatPage({ user, onLogout }) {
         try { const e = await res.json(); if (e && e.detail) detail = typeof e.detail === 'string' ? e.detail : JSON.stringify(e.detail) } catch (_) { /* ignore */ }
         throw new Error(detail)
       }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop()
-        for (const line of lines) {
-          if (!line.trim()) continue
-          let evt
-          try { evt = JSON.parse(line) } catch (_) { continue }
-          applyEvent(evt)
-        }
-      }
+      await drainStream(res)
       setMessages((m) => m.map((x) => x.key === aiKey ? { ...x, streaming: false } : x))
 
       if (appendUser && prompt) {
@@ -172,7 +221,7 @@ export default function ChatPage({ user, onLogout }) {
       setBusy(false)
       stopRef.current = null
     }
-  }, [busy, threadId, model, refreshThreads, uploadFiles, applyEvent, showToast])
+  }, [busy, threadId, model, refreshThreads, uploadFiles, applyEvent, drainStream, showToast])
 
   const stopGenerating = useCallback(() => {
     if (stopRef.current) stopRef.current.abort()
@@ -304,6 +353,8 @@ export default function ChatPage({ user, onLogout }) {
           onEditTextChange={setEditText}
           onCommit={commitAction}
           onCancel={cancelAction}
+          pendingQuestion={pendingQuestion}
+          onAnswerQuestion={answerQuestion}
         />
         <Composer busy={busy} onSend={send} onStop={stopGenerating} />
       </div>

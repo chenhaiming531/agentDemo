@@ -51,6 +51,8 @@ function AiMessage({ m }) {
         )}
         {m.content ? (
           <div className="msg-bubble">{m.content}{m.streaming && <span className="cursor" />}</div>
+        ) : m.awaitingHuman ? (
+          <div className="msg-bubble" style={{ color: 'var(--amber)' }}>需要你确认一下 ↓</div>
         ) : (
           m.streaming && <div className="msg-bubble" style={{ color: 'var(--muted)' }}>思考中<span className="cursor" /></div>
         )}
@@ -77,6 +79,37 @@ function UserMessage({ m }) {
       <div className="msg-body">
         <div className="msg-bubble">{m.content}</div>
       </div>
+    </div>
+  )
+}
+
+function HumanQuestionCard({ question, options, onAnswer, disabled }) {
+  const [custom, setCustom] = useState('')
+  return (
+    <div className="ask-card">
+      <div className="ask-card-head">
+        <span className="ask-card-icon">?</span>
+        <span>智能体需要你确认一下</span>
+      </div>
+      <div className="ask-card-q">{question}</div>
+      <div className="ask-card-opts">
+        {options.map((o, i) => (
+          <button key={i} className="ask-opt" disabled={disabled} onClick={() => onAnswer(o)}>{o}</button>
+        ))}
+      </div>
+      <form className="ask-card-custom" onSubmit={(e) => {
+        e.preventDefault()
+        if (custom.trim()) { onAnswer(custom.trim()); setCustom('') }
+      }}>
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder="或输入你自己的回答…"
+          disabled={disabled}
+        />
+        <button type="submit" disabled={disabled || !custom.trim()}>发送</button>
+      </form>
+      <div className="ask-card-hint">你的回答会交回智能体，它将继续完成刚才的任务。</div>
     </div>
   )
 }
@@ -118,12 +151,14 @@ export default function ChatArea({
   onEditTextChange,
   onCommit,
   onCancel,
+  pendingQuestion,
+  onAnswerQuestion,
 }) {
   const scrollRef = useRef(null)
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, editMode])
+  }, [messages, editMode, pendingQuestion])
 
   return (
     <div className="chat-scroll" ref={scrollRef}>
@@ -134,7 +169,15 @@ export default function ChatArea({
           messages.map((m) => (m.role === 'user' ? <UserMessage key={m.key} m={m} /> : <AiMessage key={m.key} m={m} />))
         )}
 
-        {canAct && !editMode && (
+        {pendingQuestion && (
+          <HumanQuestionCard
+            question={pendingQuestion.question}
+            options={pendingQuestion.options}
+            onAnswer={onAnswerQuestion}
+          />
+        )}
+
+        {canAct && !editMode && !pendingQuestion && (
           <div className="msg-actions">
             <button className="act-btn" onClick={onEdit}>✏️ 编辑后重发</button>
             <button className="act-btn" onClick={onSupplement}>➕ 补充后重发</button>
